@@ -8,11 +8,11 @@ Built with **Next.js 14** + **Supabase** + **Tailwind CSS**.
 
 ## 🗂 Phase Structure
 
-| Phase | Modules | Status |
-|-------|---------|--------|
-| **Phase 1** | Auth, Organization Profile, Asset Inventory, Risk Matrix | ✅ **Ready** |
-| **Phase 2** | ISO Checklist, Compliance Dashboard, Evidence Upload | 🔜 Coming |
-| **Phase 3** | Findings Generator, PDF Report, AI Assistant | 🔜 Coming |
+| Phase | Modules | 
+|-------|---------|
+| **Phase 1** | Auth, Organization Profile, Asset Inventory, Risk Matrix |
+| **Phase 2** | ISO Checklist, Compliance Dashboard, Evidence Upload |
+| **Phase 3** | Findings Generator, PDF Report, AI Assistant | 
 
 ---
 
