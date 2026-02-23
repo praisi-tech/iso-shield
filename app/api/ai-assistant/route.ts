@@ -1,71 +1,148 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+/**
+ * Helper for retrying embedding requests.
+ * Handles 503 (Model Loading) and 429 (Rate Limits).
+ */
+async function fetchWithRetry(url: string, options: any, retries = 3, backoff = 1000) {
+  for (let i = 0; i < retries; i++) {
+    const res = await fetch(url, options);
+    if (res.ok) return res;
+    // Don't retry if authentication failed
+    if (res.status === 401) return res; 
+    if (res.status !== 503 && res.status !== 429) break;
+    await new Promise(resolve => setTimeout(resolve, backoff * (i + 1)));
+  }
+  return fetch(url, options);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const { messages, context: orgContext } = await req.json()
 
-    const { messages, context } = await req.json()
-
-    // Build system prompt with audit context
-    const systemPrompt = `You are ISO Shield AI, an expert ISO 27001 security audit assistant embedded in the ISO Shield platform.
-
-Your role is to help security professionals with:
-- Explaining ISO 27001 controls and requirements
-- Analyzing vulnerabilities (OWASP Top 10) and their implications
-- Suggesting remediation strategies and implementation guidance
-- Interpreting risk scores and compliance gaps
-- Recommending audit best practices
-- Explaining security concepts in clear, actionable language
-
-${context ? `Current audit context:
-- Organization: ${context.orgName || 'Not set'}
-- Sector: ${context.sector || 'Not set'}
-- Total Assets: ${context.totalAssets || 0}
-- Compliance Score: ${context.complianceScore || 0}%
-- High/Critical Risks: ${context.highRisks || 0}
-- Open Findings: ${context.openFindings || 0}
-` : ''}
-
-Guidelines:
-- Be concise but thorough — use bullet points and structure where helpful
-- Always provide actionable recommendations
-- Reference specific ISO 27001 control numbers (e.g., A.9.2.3) when relevant
-- For vulnerabilities, reference OWASP IDs when applicable
-- Prioritize by risk severity when making recommendations
-- Be direct — auditors need clear answers, not vague generalities`
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,   // ← INI YANG KURANG
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: messages.map((m: any) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      }),
-    })
-
-    if (!response.ok) {
-      const err = await response.text()
-      return NextResponse.json({ error: `API error: ${err}` }, { status: 500 })
+    if (!messages?.length) {
+      return NextResponse.json({ error: 'No messages provided' }, { status: 400 })
     }
 
-    const data = await response.json()
-    const text = data.content?.[0]?.text || 'I could not generate a response. Please try again.'
+    const userMessage = messages[messages.length - 1].content
 
-    return NextResponse.json({ message: text })
+    // 1️⃣ Generate embedding using HuggingFace Router
+    // We wrap the input in an array [userMessage] to target the Feature Extraction pipeline
+    const embedResponse = await fetchWithRetry(
+      'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.HF_TOKEN?.trim()}`,
+          'Content-Type': 'application/json',
+          'x-use-cache': 'true' 
+        },
+        body: JSON.stringify({
+          inputs: [userMessage], 
+          options: { wait_for_model: true } 
+        }),
+      }
+    )
+
+    // Specific error handling for Authentication
+    if (embedResponse.status === 401) {
+      throw new Error('HuggingFace Authentication Failed: Please check your HF_TOKEN in .env.local');
+    }
+
+    if (!embedResponse.ok) {
+      const errorData = await embedResponse.json().catch(() => ({}));
+      throw new Error(errorData.error || `HuggingFace API Error: ${embedResponse.status}`);
+    }
+
+    const embeddingResults = await embedResponse.json()
+    
+    // Normalize results: the router returns [[number]] for a batch of one
+    const rawVector = Array.isArray(embeddingResults[0]) 
+      ? embeddingResults[0] 
+      : embeddingResults;
+
+    if (!rawVector || typeof rawVector[0] !== 'number') {
+      throw new Error('Invalid embedding format received from HuggingFace.');
+    }
+
+    // Convert vector to Postgres format string: "[0.1, 0.2, ...]"
+    const formattedVector = `[${rawVector.join(',')}]`
+
+    // 2️⃣ Vector search in Supabase (RAG)
+    // IMPORTANT: filter_org_id ensures data isolation between different clients
+    const { data: docs, error: rpcError } = await supabase.rpc(
+      'match_iso_docs',
+      {
+        query_embedding: formattedVector,
+        match_count: 5,
+        filter_org_id: orgContext?.orgId 
+      }
+    )
+
+    if (rpcError) {
+      console.error('Supabase RPC Error:', rpcError);
+      // If the function is missing, we'll continue with limited context rather than crashing
+    }
+
+    const kbContext = docs?.length 
+      ? docs.map((d: any) => d.content).join('\n\n') 
+      : 'No specific audit documents found for this query.'
+
+    // 3️⃣ Construct the System Prompt with retrieved context
+    const systemPrompt = `
+You are ISO Shield AI, an expert ISO 27001:2022 lead auditor.
+Organization: ${orgContext?.orgName || 'Unknown Client'}
+Current Compliance Score: ${orgContext?.complianceScore || 0}%
+
+Knowledge Base Context (Internal Audit Data):
+${kbContext}
+
+Rules:
+1. Strictly use ISO 27001:2022 terminology.
+2. Reference specific Annex A controls when relevant.
+3. Provide actionable, step-by-step implementation guidance.
+4. If the retrieved context doesn't answer the question, rely on your core ISO knowledge but note that internal data was insufficient.
+5. Use Markdown formatting for clarity.
+`
+
+    // 4️⃣ GROQ Call (Llama 3.1 70B)
+    const groqResponse = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY?.trim()}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-70b-versatile',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages,
+          ],
+          temperature: 0.1, // Low temperature for factual audit consistency
+        }),
+      }
+    )
+
+    if (!groqResponse.ok) {
+      const groqError = await groqResponse.json().catch(() => ({}));
+      throw new Error(groqError.error?.message || 'Groq API inference failed');
+    }
+
+    const json = await groqResponse.json()
+
+    return NextResponse.json({
+      message: json.choices?.[0]?.message?.content || 'AI response unavailable.',
+    })
+
   } catch (err: any) {
-    console.error('AI API error:', err)
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 })
+    console.error('RAG_PIPELINE_ERROR:', err)
+    return NextResponse.json(
+      { error: err.message || 'Internal Server Error' },
+      { status: 500 }
+    )
   }
 }

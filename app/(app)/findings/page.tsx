@@ -308,8 +308,8 @@ function FindingDetailDrawer({ finding, onClose, onUpdated }: { finding: AuditFi
       })
       const data = await res.json()
       setAiExplain(data.message || 'Could not generate explanation.')
-    } catch {
-      setAiExplain('Failed to connect to AI. Please check your ANTHROPIC_API_KEY configuration.')
+    } catch (err) {
+      setAiExplain('Failed to connect to AI. Please check your GROQ_API_KEY configuration.')
     }
     setAiLoading(false)
   }

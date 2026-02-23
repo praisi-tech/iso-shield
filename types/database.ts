@@ -668,6 +668,24 @@ export type Database = {
         }
         Relationships: []
       }
+      iso_knowledge: {
+        Row: {
+          content: string | null
+          embedding: string | null
+          id: string
+        }
+        Insert: {
+          content?: string | null
+          embedding?: string | null
+          id?: string
+        }
+        Update: {
+          content?: string | null
+          embedding?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
       organizations: {
         Row: {
           address: string | null
@@ -836,7 +854,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_iso_docs: {
+        Args: { query_embedding: string }
+        Returns: {
+          content: string
+          id: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       asset_criticality: "critical" | "high" | "medium" | "low"

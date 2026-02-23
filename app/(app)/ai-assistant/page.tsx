@@ -17,7 +17,7 @@ const QUICK_PROMPTS = [
   { icon: BookOpen,      label: 'Common certification failures', prompt: 'What are the most common reasons organizations fail ISO 27001 certification audits, and how can I avoid them?' },
   { icon: Lightbulb,     label: 'Risk treatment strategies',     prompt: 'Explain the four ISO 27001 risk treatment options (mitigate, accept, transfer, avoid) with real-world examples for each.' },
   { icon: Shield,        label: 'Scope definition best practice', prompt: 'How should I define the ISMS scope for an organization with hybrid on-premise and cloud infrastructure? What should and shouldn\'t be included?' },
-  { icon: AlertTriangle, label: 'SQL Injection full remediation', prompt: 'Provide a comprehensive remediation plan for SQL Injection (OWASP A03:2021) including detection, immediate fixes, long-term controls, and developer training.' },
+  { icon: AlertTriangle, label: 'SQL Injection full remediation', prompt: 'Provide a comprehensive remediation plan for SQL Injection (OWASP A03:2021) including detection, intermediate fixes, long-term controls, and developer training.' },
   { icon: BookOpen,      label: 'SoA document guide',            prompt: 'What is a Statement of Applicability in ISO 27001, how do I write one, and what are the common mistakes to avoid?' },
   { icon: Lightbulb,     label: 'Incident response plan',        prompt: 'Help me create an outline for an ISO 27001-compliant Information Security Incident Response Plan (A.16.1.1).' },
 ]
@@ -127,7 +127,7 @@ const WELCOME: ChatMessage = {
   role: 'assistant',
   content: `## Welcome to ISO Shield AI 🛡️
 
-I'm your intelligent ISO 27001 security audit assistant with full context of your organization's audit data.
+I'm your intelligent ISO 27001 security audit assistant powered by **Llama 3.1 70B** on **Groq**, with full RAG context from your organization's audit data.
 
 I can help you with:
 - **ISO 27001 Annex A controls** — explanations, implementation guidance, and evidence requirements
@@ -135,9 +135,8 @@ I can help you with:
 - **Risk treatment strategies** — mitigate, accept, transfer, avoid with real examples
 - **Compliance gap analysis** — interpreting your checklist scores and prioritizing actions
 - **Audit preparation** — documentation, SoA, ISMS scope, and certification tips
-- **Findings interpretation** — understanding severity, urgency, and remediation sequencing
 
-Pick a quick prompt below or ask me anything. I'll tailor my answers to your audit context.`,
+Pick a quick prompt below or ask me anything.`,
   timestamp: new Date().toISOString(),
 }
 
@@ -163,7 +162,7 @@ export default function AiAssistantPage() {
     const orgId = profile.organization_id
 
     const [orgRes, assetsRes, risksRes, findingsRes, complianceRes] = await Promise.all([
-      supabase.from('organizations').select('name, sector, exposure_level, risk_appetite').eq('id', orgId).single(),
+      supabase.from('organizations').select('id, name, sector, exposure_level, risk_appetite').eq('id', orgId).single(),
       supabase.from('assets').select('criticality').eq('organization_id', orgId).eq('is_active', true),
       supabase.from('asset_vulnerabilities').select('risk_level').eq('organization_id', orgId),
       supabase.from('audit_findings').select('status, severity').eq('organization_id', orgId),
@@ -180,6 +179,7 @@ export default function AiAssistantPage() {
     const allRisks = risksRes.data || []
 
     setOrgContext({
+      orgId: orgRes.data?.id, // Ensure ID is captured for the backend filter
       orgName: orgRes.data?.name,
       sector: orgRes.data?.sector,
       exposureLevel: orgRes.data?.exposure_level,
@@ -216,7 +216,7 @@ export default function AiAssistantPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
-          context: orgContext,
+          context: orgContext, // Passes orgId inside this object for backend RPC filter
         }),
       })
       const data = await res.json()
@@ -225,7 +225,7 @@ export default function AiAssistantPage() {
     } catch (err: any) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `**Error:** ${err.message}\n\nTo use the AI Assistant, add your Anthropic API key to your environment:\n\`\`\`\nANTHROPIC_API_KEY=sk-ant-...\n\`\`\`\nGet your key at [console.anthropic.com](https://console.anthropic.com)`,
+        content: `**System Error:** ${err.message}\n\nPlease check your HuggingFace Router endpoint and Groq API keys in your environment variables.`,
         timestamp: new Date().toISOString(),
       }])
     }
@@ -251,15 +251,14 @@ export default function AiAssistantPage() {
           </div>
           <div>
             <h1 className="text-base font-bold text-white">ISO Shield AI</h1>
-            <p className="text-xs text-slate-500">ISO 27001 & Security Audit Expert</p>
+            <p className="text-xs text-slate-500">Groq-Accelerated Audit Expert</p>
           </div>
           <div className="ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs text-emerald-400 font-medium">Online</span>
+            <span className="text-xs text-emerald-400 font-medium">Llama 3.1 70B Active</span>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {/* Context pills */}
           {orgContext && contextLoaded && (
             <div className="hidden lg:flex items-center gap-2">
               {[
@@ -319,7 +318,7 @@ export default function AiAssistantPage() {
                 e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px'
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about ISO 27001 controls, OWASP vulnerabilities, risk treatment, compliance gaps, audit preparation..."
+              placeholder="Ask about ISO 27001 controls, OWASP vulnerabilities, risk treatment..."
               rows={1}
               disabled={loading}
               className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/50 resize-none transition-all leading-relaxed"
@@ -332,7 +331,7 @@ export default function AiAssistantPage() {
           </button>
         </div>
         <p className="text-[10px] text-slate-700 mt-2 text-center">
-          Powered by Claude Sonnet · Responses are AI-generated — verify with a qualified security professional · Shift+Enter for new line
+          Powered by Llama 3.1 70B via Groq · HuggingFace MiniLM Embeddings · Multi-tenant Isolation Enabled · Shift+Enter for new line
         </p>
       </div>
     </div>
