@@ -22,7 +22,7 @@ Built with **Next.js 14** + **Supabase** + **Tailwind CSS**.
 
 ```bash
 git clone <repo>
-cd iso27001-platform
+cd iso-shield
 npm install
 ```
 
@@ -58,7 +58,7 @@ Open [http://localhost:3000](http://localhost:3000)
 ## 📐 Project Structure
 
 ```
-iso27001-platform/
+iso-shield/
 ├── app/
 │   ├── (app)/                    # Protected app routes
 │   │   ├── layout.tsx            # App shell with sidebar
