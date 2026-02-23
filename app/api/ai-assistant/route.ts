@@ -29,22 +29,19 @@ export async function POST(req: NextRequest) {
     const userMessage = messages[messages.length - 1].content
 
     // 1️⃣ Generate embedding using HuggingFace Router
-    // We wrap the input in an array [userMessage] to target the Feature Extraction pipeline
-    const embedResponse = await fetchWithRetry(
-      'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.HF_TOKEN?.trim()}`,
-          'Content-Type': 'application/json',
-          'x-use-cache': 'true' 
-        },
-        body: JSON.stringify({
-          inputs: [userMessage], 
-          options: { wait_for_model: true } 
-        }),
-      }
-    )
+const embedResponse = await fetchWithRetry(
+  'https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5',
+  {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.HF_TOKEN?.trim()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      inputs: userMessage,
+    }),
+  }
+)
 
     // Specific error handling for Authentication
     if (embedResponse.status === 401) {
@@ -117,7 +114,7 @@ Rules:
           'Authorization': `Bearer ${process.env.GROQ_API_KEY?.trim()}`,
         },
         body: JSON.stringify({
-          model: 'llama-3.1-70b-versatile',
+          model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: systemPrompt },
             ...messages,
