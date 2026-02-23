@@ -23,7 +23,7 @@ Built with **Next.js 14** + **Supabase** + **Tailwind CSS**.
 ```bash
 git clone <repo>
 cd iso-shield
-npm install
+pnpm install
 ```
 
 ### 2. Set up Supabase
@@ -48,7 +48,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ### 4. Run Development Server
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
